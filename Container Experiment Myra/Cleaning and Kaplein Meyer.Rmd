@@ -1,0 +1,1158 @@
+---
+title: "Cleaning and Kaplein Meyer"
+author: "Kaitlin Rommelfanger"
+date: "2026-03-26"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+library(readr)
+library(tidyverse)
+
+nursery<- read_csv("32626CleaingCheck.csv")
+
+#checking values to see that there is only expected levels
+unique(nursery$Treatment)
+unique(nursery$`Dead/Alive`)
+unique(nursery$`Monitoring Session`)
+
+
+nursery$`Dead/Alive`<-as.factor(nursery$`Dead/Alive`)
+nursery$`Epicotyl length (cm)`<-as.numeric(nursery$`Epicotyl length (cm)`)
+
+#look at number alive over time
+survivorship<-nursery%>%
+  group_by(Treatment, `Dead/Alive`,`Monitoring Session`)%>%
+  summarise(count=n())%>%
+  pivot_wider(names_from = `Monitoring Session`, values_from = count)
+
+
+#look at number of plants monitored in each montoring session 
+moncheck<-nursery%>%
+  group_by(`Monitoring Session`,`Propagule ID`)%>%
+  summarise(n=n())%>%#total number of times monitored at each monitoring session
+  filter(n>1)#filter for ones monitored more than once in a single monitoring session
+
+unique(moncheck$`Propagule ID`)
+#657 665 722 635 607 619 627 680 688
+
+#there were still some trees monitored  twice in the same monitoring sesh, edited in csv and redownloaded, will recheck 
+
+nursery<- read_csv("32626checkcleaned.csv")
+
+#look at number of plants monitored in each montoring session 
+moncheck<-nursery%>%
+  group_by(`Monitoring Session`,`Propagule ID`)%>%
+  summarise(n=n())%>%#total number of times monitored at each monitoring session
+  filter(n>1)#filter for ones monitored more than once in a single monitoring session
+
+#no more duplicates, but there is quite a few trees missing tag IDs now in a few sessions (the number of NAs in propagule ID)
+#2=3, 4=13, 11=3, 22=5,25=31,32=50
+
+#sessions 25 and 31 concern me
+
+```
+
+
+Correcting for trees that were ID ed with the wrong treatment
+```{r}
+
+#going to look at number for each treatment montiored in each monitoring session
+
+tcheck<-nursery%>%
+  filter(!is.na(`Propagule ID`))%>%
+  group_by(`Monitoring Session`, Treatment)%>%
+  summarise(N=n())%>%
+  pivot_wider(names_from = `Monitoring Session`, values_from = N)
+
+#when I look at the number of trees in each treatment they aren't consistent, sometimes they are over the number of trees planted. want to check to see if trees are consistently marked with the correct treatment
+
+treatmentcheck<-nursery%>%
+  group_by(`Propagule ID`)%>%
+  summarise(nTreatments=n_distinct(Treatment))%>%
+  filter(nTreatments>1)
+#we've got 31 trees that are recorded with having more than one treatment, going to generate a list so i can fix it
+unique(treatmentcheck$`Propagule ID`)
+#[1] 566=TP 568=CC 570=BB 577=TP 582=CC 586 590 598 620 622 627 636 640 642 643 645 646 651 652 653 657 661 665 668 674 681 690 691 714 715 722 725 727 728 
+
+#filtering for a single prop ID so I can look at it over time, see if it was just a typo
+check<-nursery%>%
+  filter(`Propagule ID`==582)
+
+
+#going to fix the treatments so that same prop ID has the same treatment the whole time (I added a new column, treatment fixed, not writing over original column)
+nursery_treatmentchange <- nursery %>%
+  group_by(`Propagule ID`) %>% #for each propagule id
+  mutate(
+    Treatment_fixed = ifelse(  
+      is.na(`Propagule ID`),    #if prop ID is NA want to keep original treatment
+      Treatment,
+      names(sort(table(Treatment), decreasing = TRUE))[1])) %>% #if not NA do this
+  ungroup()
+
+#table(treatment) makes a table with the different treatments and the number of times it is recorderd as being that treatment, (50 times BB, 1 time CC) then it sorts the table values in decending order most to least instances of that treatment, then for each prop ID it replaces the treatment with the most common treatment found, which fixes the times when the trees are randomly IDed with the wrong treatment, so now we have a new column Treatment_fixed that should have all trees only with one treatment over time
+
+
+#checking how many trees in each treatment with fixed treatment column, we don't have a way to know if the trees without prop IDs have the correct treatment, so we can't include them for that time point
+
+tcheck<-nursery_treatmentchange%>%
+  filter(!is.na(`Propagule ID`))%>% #filtering out NAs
+  group_by(`Monitoring Session`, Treatment_fixed)%>%
+  summarise(N=n())%>%
+  pivot_wider(names_from = `Monitoring Session`, values_from = N)
+
+
+#I have 10 time points with 60 trees monitored in each treatment, a lot of the other monitoring points are missing trees in treatments. 
+write.table(tcheck, "table.txt", )
+```
+
+looking at living dead over time
+```{r}
+#using this to visualize survivorship over time for individual trees and see when we have missing sessions
+survive<-nursery_treatmentchange%>%
+  select(`Monitoring Session`, `Propagule ID`, Treatment, `Dead/Alive`)%>%
+  pivot_wider(names_from = `Monitoring Session` , values_from =  `Dead/Alive`)
+
+#this is organizing the dataframe by propagule ID and monitoring session then grouping by propagule id, creating a new column called zombie. In zombie the funciton lag() will look at the value  of Dead/Aive at the previous monitoring session and put that value in zombie plants column. then I am filtering for times where dead/alive is A and the previous session trees (my mutated ZombiePlants column) were marked dead
+zombies<-nursery_treatmentchange%>%
+  arrange(`Propagule ID`, `Monitoring Session`)%>% 
+  group_by(`Propagule ID`)%>%
+  mutate(ZombiePlants=lag(`Dead/Alive`))%>%
+  ungroup()%>%
+  filter(`Dead/Alive`=="A")%>%
+  filter(ZombiePlants=="D") 
+
+#looking at how many trees there are that are zombies
+length(unique(zombies$`Propagule ID`))
+#68 trees that are dead then alive again
+
+#what trees are they
+unique(zombies$`Propagule ID`)
+#560 561 564 566 567 575 580 581 584 585 591 595 603 604 605 606 609 617 622 626 627
+
+#628 634 636 637 639 640 642 645 648 651 652 653 655 657 663 665 667 669 672 674 675 
+
+#677 686 687 688 690 692 694 696 697 698 699 700 702 703 706 707 708 715 716 721 722 724 726 728 731
+
+
+#at this point I went one by one filtering for the trees and looking at the data, once I identified the time point of "death" I wrote over all points either moving forward as D or backward as alive using and if else statement
+
+#I also added resprout column and populated that with yes in the case I found resprouted trees
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="560")
+#560 marking dead at first death session 3looks like it was decaped, no notes of resprout
+
+#so I am going to rewerite over the D/A column marking dead after first death unless in the case of the resprout trees
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="560"&`Monitoring Session`>=3,
+         "D",
+         `Dead/Alive`))
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="560")
+#if else statement works!! Boom shacka lacka now we do them all  
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="561")
+#561 dead after first dead, session 5, decap no notes of resprout
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="561"&`Monitoring Session`>=5,
+         "D",
+         `Dead/Alive`))
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="564")
+#RESPROUT, marking dead after session 3
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="564"&`Monitoring Session`>=3,
+         "D",
+         `Dead/Alive`))
+
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(Resprout=ifelse(
+    `Propagule ID`=="564",
+    "Yes",
+    NA
+  ))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="566")
+#gonna call it dead after 2 but noting RESPROUT decap noted, later sprouting noted but epi lengths gone after RESPROUT
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="566"&`Monitoring Session`>=2,
+         "D",
+         `Dead/Alive`))
+#now adding resprout column
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(Resprout=ifelse(
+    `Propagule ID`=="566",
+    "Yes",
+    Resprout
+  ))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="567")
+#mark dead after session 4, no resprout
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="567"&`Monitoring Session`>=4,
+         "D",
+         `Dead/Alive`))
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="575")
+#mark dead session 5
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="575"&`Monitoring Session`>=5,
+         "D",
+         `Dead/Alive`))
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="580")
+#dead session 6
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="580"&`Monitoring Session`>=6,
+         "D",
+         `Dead/Alive`))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="581")
+#dead after first dead session 5
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="581"&`Monitoring Session`>=5,
+         "D",
+         `Dead/Alive`))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="584")
+#decap but resprout dead after 7 RESPROUT
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="584"&`Monitoring Session`>=7,
+         "D",
+         `Dead/Alive`))
+
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(Resprout=ifelse(
+    `Propagule ID`=="584",
+    "Yes",
+    Resprout
+  ))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="585")
+#dead at first monitoring session
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="585"&`Monitoring Session`>=1,
+         "D",
+         `Dead/Alive`))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="591")
+#mark dead at session 4 and all following
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="591"&`Monitoring Session`>=4,
+         "D",
+         `Dead/Alive`))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="595")
+#dead at session 7
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="595"&`Monitoring Session`>=7,
+         "D",
+         `Dead/Alive`))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="603")
+#dead at session 7
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="603"&`Monitoring Session`>=7,
+         "D",
+         `Dead/Alive`))
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="604")
+#dead at session 5
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="604"&`Monitoring Session`>=2,
+         "D",
+         `Dead/Alive`))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="605")
+#dead session 4
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="605"&`Monitoring Session`>=4,
+         "D",
+         `Dead/Alive`))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="606")
+#not dead at all
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="606"&`Monitoring Session`>=1,
+         "A",
+         `Dead/Alive`))
+
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="609")
+#dead at session 7
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="609"&`Monitoring Session`>=7,
+         "D",
+         `Dead/Alive`))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="617")
+#dead at session 3
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="617"&`Monitoring Session`>=3,
+         "D",
+         `Dead/Alive`))
+
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="622")
+#dead at session 4
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="622"&`Monitoring Session`>=4,
+         "D",
+         `Dead/Alive`))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="626")
+#dead at session 3
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="626"&`Monitoring Session`>=3,
+         "D",
+         `Dead/Alive`))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="627")
+#dead at session 3
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="627"&`Monitoring Session`>=3,
+         "D",
+         `Dead/Alive`))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="628")
+#dead at session 3
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="628"&`Monitoring Session`>=3,
+         "D",
+         `Dead/Alive`))
+
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="634")
+#dead at session 5
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="634"&`Monitoring Session`>=5,
+         "D",
+         `Dead/Alive`))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="636")
+#dead at session 4
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="636"&`Monitoring Session`>=4,
+         "D",
+         `Dead/Alive`))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="637")
+#dead at session 9
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="637"&`Monitoring Session`>=9,
+         "D",
+         `Dead/Alive`))
+
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="637"&`Monitoring Session`<9,
+         "A",
+         `Dead/Alive`))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="639")
+#alive for all sessions!
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="639"&`Monitoring Session`>=1,
+         "A",
+         `Dead/Alive`))
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="640")
+#dead at session 2
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="640"&`Monitoring Session`>=2,
+         "D",
+         `Dead/Alive`))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="642")
+#dead at session 5
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="642"&`Monitoring Session`>=5,
+         "D",
+         `Dead/Alive`))
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="645")
+#dead at session 4
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="645"&`Monitoring Session`>=4,
+         "D",
+         `Dead/Alive`))
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="648")
+#dead at session 5
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="648"&`Monitoring Session`>=5,
+         "D",
+         `Dead/Alive`))
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="651")
+#decap but resprouted Alive whole time (makring dead at 9)
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="651"&`Monitoring Session`>=9,
+         "D",
+         `Dead/Alive`))
+
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(Resprout=ifelse(
+    `Propagule ID`=="651",
+    "Yes",
+    Resprout
+  ))
+
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="652")
+#broken then resprouted alive the whole time
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(Resprout=ifelse(
+    `Propagule ID`=="652",
+    "Yes",
+    Resprout
+  ))
+
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="652"&`Monitoring Session`==4,
+         "A",
+         `Dead/Alive`))
+
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="653")
+#dead at session 2
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="653"&`Monitoring Session`>=2,
+         "D",
+         `Dead/Alive`))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="655")
+#dead at session 6
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="655"&`Monitoring Session`>=6,
+         "D",
+         `Dead/Alive`))
+
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="655"&`Monitoring Session`<6,
+         "A",
+         `Dead/Alive`))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="657")
+#dead at session 5
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="657"&`Monitoring Session`>=5,
+         "D",
+         `Dead/Alive`))
+
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="657"&`Monitoring Session`<5,
+         "A",
+         `Dead/Alive`))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="663")
+#dead at session 6
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="663"&`Monitoring Session`>=6,
+         "D",
+         `Dead/Alive`))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="665")
+#decap at 7, new shoot at last monitoring session RESHOOT
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="665"&`Monitoring Session`>=7,
+         "D",
+         `Dead/Alive`))
+
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(Resprout=ifelse(
+    `Propagule ID`=="665",
+    "Yes",
+    Resprout
+  ))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="667")
+#DECAP, RESPROUT happened dead at session 7
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="667"&`Monitoring Session`>=7,
+         "D",
+         `Dead/Alive`))
+
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(Resprout=ifelse(
+    `Propagule ID`=="667",
+    "Yes",
+    Resprout
+  ))
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="669")
+#dead at session 4
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="669"&`Monitoring Session`>=4,
+         "D",
+         `Dead/Alive`))
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="672")
+#dead at session 5
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="672"&`Monitoring Session`>=5,
+         "D",
+         `Dead/Alive`))
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="674")
+#dead at session 5
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="674"&`Monitoring Session`>=5,
+         "D",
+         `Dead/Alive`))
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="675")
+#alive all along
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="675"&`Monitoring Session`>=1,
+         "A",
+         `Dead/Alive`))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="677")
+#dead session 4
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="677"&`Monitoring Session`>=4,
+         "D",
+         `Dead/Alive`))
+
+
+
+#677 686 687 688 690 692 694 696 697 698 699 700 702 703 706 707 708 715 716 721 722 724 726 728 731
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="686")
+#dead at session 5
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="686"&`Monitoring Session`>=5,
+         "D",
+         `Dead/Alive`))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="687")
+#dead at session 4
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="687"&`Monitoring Session`>=4,
+         "D",
+         `Dead/Alive`))
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="688")
+#dead at session 7
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="688"&`Monitoring Session`>=7,
+         "D",
+         `Dead/Alive`))
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="690")
+#dead session 6
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="690"&`Monitoring Session`>=6,
+         "D",
+         `Dead/Alive`))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="692")
+#dead at session 6
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="692"&`Monitoring Session`>=6,
+         "D",
+         `Dead/Alive`))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="694")
+#dead at session 7
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="694"&`Monitoring Session`>=7,
+         "D",
+         `Dead/Alive`))
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="696")
+#dead session 4
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="696"&`Monitoring Session`>=4,
+         "D",
+         `Dead/Alive`))
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="697")
+#dead at 6 RESPROUT 
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="697"&`Monitoring Session`>=6,
+         "D",
+         `Dead/Alive`))
+
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(Resprout=ifelse(
+    `Propagule ID`=="697",
+    "Yes",
+    Resprout
+  ))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="698")
+#dead session 5
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="698"&`Monitoring Session`>=5,
+         "D",
+         `Dead/Alive`))
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="699")
+#dead session 5
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="699"&`Monitoring Session`>=5,
+         "D",
+         `Dead/Alive`))
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="700")
+#dead session 5
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="700"&`Monitoring Session`>=5,
+         "D",
+         `Dead/Alive`))
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="702")
+#dead session 4
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="702"&`Monitoring Session`>=4,
+         "D",
+         `Dead/Alive`))
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="703")
+#dead at session 7
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="703"&`Monitoring Session`>=7,
+         "D",
+         `Dead/Alive`))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="706")
+#dead at session 8
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="706"&`Monitoring Session`>=8,
+         "D",
+         `Dead/Alive`))
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="707")
+#dead session 5
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="707"&`Monitoring Session`>=5,
+         "D",
+         `Dead/Alive`))
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="708")
+#dead session 5
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="708"&`Monitoring Session`>=5,
+         "D",
+         `Dead/Alive`))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="715")
+#dead session 4
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="715"&`Monitoring Session`>=4,
+         "D",
+         `Dead/Alive`))
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="716")
+#dead at 4th monitoring session (not monitored 2, or 3rd)
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="716"&`Monitoring Session`>=4,
+         "D",
+         `Dead/Alive`))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="721")
+#dead at 5th monitoring session 
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="721"&`Monitoring Session`>=5,
+         "D",
+         `Dead/Alive`))
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="722")
+#dead at 5th monitoring session 
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="722"&`Monitoring Session`>=5,
+         "D",
+         `Dead/Alive`))
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="724")
+#dead at 5th mon sesh 
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="724"&`Monitoring Session`>=5,
+         "D",
+         `Dead/Alive`))
+
+
+#724 726 728 731
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="726")
+#alive the whole time
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="726"&`Monitoring Session`>=1,
+         "A",
+         `Dead/Alive`))
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="728")
+#dead at 4th mon sesh
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="728"&`Monitoring Session`>=4,
+         "D",
+         `Dead/Alive`))
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="731")
+#RESPROUT
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="731"&`Monitoring Session`>=5,
+         "D",
+         `Dead/Alive`))
+
+nursery_treatmentchange<-nursery_treatmentchange%>%
+  mutate(Resprout=ifelse(
+    `Propagule ID`=="731",
+    "Yes",
+    Resprout
+  ))
+
+
+```
+
+
+```{r}
+#this was a check I ran after adjusting for all zombies, I fixed the trees that were still zombies 
+zombiecheck<-nursery_treatmentchange%>%
+  arrange(`Propagule ID`, `Monitoring Session`)%>% 
+  group_by(`Propagule ID`)%>%
+  mutate(ZombiePlants=lag(`Dead/Alive`))%>%
+  ungroup()%>%
+  filter(`Dead/Alive`=="A")%>%
+  filter(ZombiePlants=="D") 
+
+#double check these in the AM
+
+unique(zombiecheck$`Propagule ID`)
+#564 604 637 652 655 657
+
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="564")
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="604")
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="652")
+#a resprout
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="655")
+#fixed 
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="657")
+
+#when i recheck zombies after fixing this the only remaining one is a resprout woo all zombies slayed
+
+```
+
+
+myra and I checking our resprots
+```{r}
+nursery<-nursery_treatmentchange%>%
+  group_by(Treatment_fixed, `Dead/Alive`)%>%
+  summarise(N=n())
+
+
+nurserycheck<-nursery_treatmentchange%>%
+  filter(Resprout=="Yes")#%>%
+  filter(`Monitoring Session`==16)%>%
+  group_by(Treatment_fixed)%>%
+  summarise(N=n())
+
+
+
+nurserycheck<-nursery_treatmentchange%>%
+  filter(Resprout=="Yes")%>%
+  filter(Treatment_fixed=="CC")
+
+nurserycheck<-
+
+unique(nurserycheck$`Propagule ID`)
+#667 652 665 697 731 564 584 566 651
+
+check<-nursery_treatmentchange%>%
+  filter(`Propagule ID`=="697")
+
+```
+
+
+
+
+Ok Kaplein Meyer Time!
+
+The theory behind it all
+https://biostatsquid.com/survival-time-analysis-easily-explained/
+https://biostatsquid.com/kaplan-meier-curve/
+https://biostatsquid.com/easy-log-rank-test/
+https://biostatsquid.com/easy-cox-regression-for-survival-analysis/
+
+the code (how to do it)
+https://biostatsquid.com/easy-survival-analysis-r-tutorial/ 
+
+another tutorial, disclaimer I like the first one better https://www.sthda.com/english/wiki/survival-analysis-basics
+
+
+```{r}
+library(lubridate)#for date things
+
+#in order to run Kaplein Meyer we need to setup the data,
+
+#we need censoring status as 0 still alive and 1 died
+
+#and we need time to event, number of days until D, or last followup, in our case session 32 in order to calculate time until death
+
+#want to look at dates for each monitoring session,make date processed a date
+nursery_treatmentchange$`Date Processed`<-mdy(nursery_treatmentchange$`Date Processed`)
+
+#now I'm picking one date for each monitoring session, because sessions run across multiple days, going with the earliest date that trees were monitored
+session_dates <- nursery_treatmentchange %>%
+  group_by(`Monitoring Session`) %>%
+  summarise(
+    first_date = min(`Date Processed`, na.rm = TRUE)
+  ) %>%
+  ungroup()
+
+```
+
+
+
+Need to rerun after filtering out 
+```{r}
+library(survival)
+library(ggsurvfit)
+library(survminer)
+
+#I'm creating a dataframe here for the test
+
+resproutcheck<-nursery_treatmentchange%>%
+  filter(Resprout=="Yes")
+
+unique(resproutcheck$`Propagule ID`)
+#9 trees resprouted, could remove these or make it so resprouted ones are A, at the end, but then I'm not sure cuz how do we know that the ones we thought were dead didnt eventually resprout?
+
+
+#for this plot removed resprouted trees
+
+#here I am looking at the dataframe and if there are any D recorded for the trees, I am selecting for the earliest session where they were dead (makind first_dead_session), otherwise marking as session 32 
+status<-nursery_treatmentchange%>%
+  filter(is.na(Resprout))%>% #removing resprouted trees
+  arrange(`Propagule ID`, `Monitoring Session`) %>%
+  group_by(`Propagule ID`) %>%
+  summarise(
+    first_dead_session = ifelse(
+      any(`Dead/Alive` == "D"), #if there are any D
+      min(`Monitoring Session`[`Dead/Alive` == "D"]), #then select the lowest dead 
+      32  #otherwise fill fist_dead_session column with 32 (survived all sessions)
+    ), status = ifelse(  #make status
+      any(`Dead/Alive` == "D"), #then if there are any D in D/A
+      1,  #mark D as 1
+      0) , #if no D, A = 0
+    Treatment = first(Treatment_fixed))%>%  #treatment from fixed treatment column
+  ungroup()%>%
+  filter(!is.na(`Propagule ID`))#removing NAs in propagule ID
+  
+#now renaming so i can join the dates with the status frame
+status<-status%>%
+  rename(`Monitoring Session`=first_dead_session)
+
+#merging 
+status<-merge(session_dates, status, by="Monitoring Session")
+
+#get time until death/end. using september 16th as the planting day
+status<-status%>%
+  mutate(time=first_date-as.Date("2021-09-16"))
+
+#make Kaplan-Meier Curve from the survival object
+  #survival object is using our data 
+curve <- survfit(Surv(time, status) ~ Treatment, data = status)
+
+#rough plot
+plot(curve)
+
+#pretty plot!
+plotobj<-ggsurvplot(curve, data=status,
+  palette = c("olivedrab","cornflowerblue","darkblue"), conf.int = TRUE, 
+  risk.table = TRUE,
+  risk.table.height=0.25)
+
+plotobj
+
+
+#testing for statistical difference between groups 
+logRank<-survdiff(Surv(time = time, event = status) ~ Treatment, data = status)
+
+logRank
+
+#Call:
+#survdiff(formula = Surv(time = time, event = status) ~ Treatment, 
+#    data = status)
+
+#              N Observed Expected (O-E)^2/E (O-E)^2/V
+#Treatment=BB 59       24     21.6     0.278     0.479
+#Treatment=CC 58       11     22.1     5.606     9.799
+#Treatment=TP 54       26     17.3     4.364     6.784
+
+# Chisq= 11.4  on 2 degrees of freedom, p= 0.003 
+
+#difference is detected from significant p value 
+
+```
+
+
+Here I wanted to fill in D/A for the trees that have missing mon seshes for the survivorship plot but I stopped for the update
+```{r}
+#want to check how many trees have a missed monitoring session
+survivalcheck<-nursery_treatmentchange%>%
+  select(`Propagule ID`, Treatment_fixed, `Monitoring Session`,`Dead/Alive`)%>%
+  pivot_wider(names_from = `Monitoring Session`, values_from = `Dead/Alive`)
+
+#now I want to fill in survivorship for monitoring sessions where the trees were missed. This should add a row fully populated with NAs for each prop ID with missing monitoring sessions 
+
+NurseryComplete <- nursery_treatmentchange %>%
+  group_by(`Propagule ID`) %>%
+  complete(`Monitoring Session` = full_seq(`Monitoring Session`, 1)) %>% #the 1 means fill sessions in increments of 1
+  ungroup()
+
+#checking to see if instead of nulls shouws NAs now
+survivalcheck<-NurseryComplete%>%
+  select(`Propagule ID`, `Monitoring Session`,`Dead/Alive`)%>%
+  pivot_wider(names_from = `Monitoring Session`, values_from = `Dead/Alive`)
+#everything looks good, but treatments are now NA  want to fix that along with DeadAlive
+
+library(dplyr)
+
+NurseryComplete1 <- NurseryComplete %>%
+  group_by(`Propagule ID`) %>%
+  arrange(`Monitoring Session`) %>%
+  mutate(
+    # Find first session where tree is dead
+    first_dead_session = min(`Monitoring Session`[`Dead/Alive` == "D"], na.rm = TRUE),
+    
+    # If no death exists, set to Inf (so everything stays Alive)
+    first_dead_session = ifelse(is.infinite(first_dead_session), Inf, first_dead_session),
+    
+    `Dead/Alive` = case_when(
+      # Keep observed values
+      !is.na(`Dead/Alive`) ~ `Dead/Alive`,
+      
+      # Before first death → Alive
+      `Monitoring Session` < first_dead_session ~ "A",
+      
+      # At or after death → Dead
+      `Monitoring Session` >= first_dead_session ~ "D"
+    )
+  ) %>%
+  ungroup()
+
+#check
+survivalcheck<-NurseryComplete1%>%
+  select(`Propagule ID`, `Monitoring Session`,`Dead/Alive`)%>%
+  pivot_wider(names_from = `Monitoring Session`, values_from = `Dead/Alive`)
+
+#there are a lot of trees missing from session 32, i think i might pull them for the plot
+
+#because the added rows are all NAs now we have Nas in treatment, needs to be fixed
+
+NurseryComplete1 <- NurseryComplete1 %>%
+  group_by(`Propagule ID`) %>% #for each propagule id
+  mutate(
+    Treatment_fixed = ifelse(  
+      is.na(`Propagule ID`),    #if prop ID is NA want to keep original treatment
+      Treatment,
+      names(sort(table(Treatment), decreasing = TRUE))[1])) %>% #if not NA do this
+  ungroup()
+
+```
+
+
+
+```{r}
+
+SurvivalPlot<-NurseryComplete1%>%
+  filter(`Monitoring Session`!=32)%>% #removing 32 so many missing
+  filter(!is.na(`Propagule ID`))%>% #removing prop NAs, these survival values filled
+  group_by(`Monitoring Session`, Treatment_fixed,`Dead/Alive`)%>%
+  summarise(N=n())%>%
+  ggplot(aes(x=`Monitoring Session`, y=N, fill=`Dead/Alive`))+
+  scale_fill_manual(labels=c("Alive", "Dead"), values=(c("darkgreen", "darkorange")))+
+  geom_col(position="stack")+
+  facet_wrap(~Treatment_fixed)
+
+SurvivalPlot
+
+#im still seeing more than 60 trees in a treatment, problem, its becasue at first I was still including trees that had NAs for propagule ID, once filtered those out looked good! Also filtered out monitoring session 32
+```
+

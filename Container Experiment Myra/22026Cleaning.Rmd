@@ -1,0 +1,59 @@
+---
+title: "2.20.26Cleaning"
+author: "Kaitlin Rommelfanger"
+date: "2026-02-20"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup}
+library(readr)
+library(tidyverse)
+nursery <- read_csv("202026CleaningCheck.csv")
+
+nursery$`Monitoring Session`<-as.factor(nursery$`Monitoring Session`)
+nursery$Location <- as.factor(nursery$Location)
+nursery$Treatment<- as.factor(nursery$Treatment)
+nursery$`Dead/Alive/Dying`<-as.factor(nursery$`Dead/Alive/Dying`)
+nursery$`Epicotyl length (cm)`<-as.numeric(nursery$`Epicotyl length (cm)`)
+
+unique(nursery$Treatment)
+unique(nursery$`Dead/Alive/Dying`)
+unique(nursery$`Monitoring Session`)
+nursery$`Dead/Alive/Dying`<-as.factor(nursery$`Dead/Alive/Dying`)
+
+
+
+
+#look at number alive over time
+survivorship<-nursery%>%
+  group_by(Treatment, `Dead/Alive/Dying`,`Monitoring Session`)%>%
+  summarise(count=n())%>%
+  pivot_wider(names_from = `Monitoring Session`, values_from = count)
+
+#look at number of plants monitored in each montoring session 
+moncheck<-nursery%>%
+  group_by(`Monitoring Session`,`Propagule ID`)%>%
+  summarise(n=n())%>%
+  filter(n>1)
+
+#fix problem children that were monitored twice, then were gonna check and make sure that we have the same number or trees in each mon sesh in each treatment
+
+
+#Treatment, Monitoring Session
+treatmentcheck<-nursery%>%
+  group_by(Treatment, `Monitoring Session`)%>%
+  summarise(n=n())%>%
+  pivot_wider(names_from = 'Monitoring Session', values_from = n)
+
+
+  
+#number of mon sesh for each tree
+montree<-nursery%>%
+  group_by(`Propagule ID`)%>%
+  summarise(length(unique(`Monitoring Session`)))
+
+
+```
+

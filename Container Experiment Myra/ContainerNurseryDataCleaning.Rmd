@@ -1,0 +1,135 @@
+---
+title: "Myra Container"
+author: "Kaitlin Rommelfanger"
+date: "2026-01-12"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+
+nursery <- read_csv("E0_ RHMA Container Nursery Experiment Master Data - Organized Data - AJH Edit.csv")
+
+nursery$`Monitoring Session`<-as.factor(nursery$`Monitoring Session`)
+nursery$Location <- as.factor(nursery$Location)
+nursery$Treatment<- as.factor(nursery$Treatment)
+nursery$`Dead/Alive/Dying`<-as.factor(nursery$`Dead/Alive/Dying`)
+nursery$`Epicotyl length (cm)`<-as.numeric(nursery$`Epicotyl length (cm)`)
+
+str(nursery)
+
+
+#look at unique values in the column check for weird
+unique(nursery$Treatment)
+#TP, BB, CC, NA, nas in May, not going to remove them 
+
+#survivorship
+unique(nursery$`Dead/Alive/Dying`)
+#4 values A, D, DY, Dy we are going to reode DY to Dy
+
+nursery$`Dead/Alive/Dying` <- gsub("DY", "Dy", nursery$`Dead/Alive/Dying`)
+
+unique(nursery$`Dead/Alive/Dying`)
+str(nursery)
+nursery$`Dead/Alive/Dying`<-as.factor(nursery$`Dead/Alive/Dying`)
+
+#look at number alive over time
+survivorship<-nursery%>%
+  group_by(Treatment, `Dead/Alive/Dying`,`Monitoring Session`)%>%
+  summarise(count=n())%>%
+  pivot_wider(names_from = `Monitoring Session`, values_from = count)
+
+length(unique(nursery$`Propagule ID`))
+#182 unique tags
+
+#look at number of plants monitored in each montoring session 
+moncheck<-nursery%>%
+  group_by(`Monitoring Session`,`Propagule ID`)%>%
+  summarise(n=n())%>%
+  filter(n>1)
+
+
+nursery<-nursery%>%
+    mutate(NewID = paste(Treatment, `Propagule ID`, sep = "_"))%>%
+  group_by(`Monitoring Session`,NewID)%>%
+  summarise(n=n())%>%
+  filter(n>1)
+
+Check<-nursery%>%
+  group_by(`Monitoring Session`, `Propagule ID`)%>%
+  summarise(n=length(`Date entered`))
+
+nursery$`Date entered`<-mdy(nursery$`Date entered`)
+
+nurserydatecheck<-  nursery%>%
+  mutate(
+    year  = year(`Date entered`),
+    month = month(`Date entered`),
+    day   = day(`Date entered`)
+  )
+
+
+nurserydatecheck<-nurserydatecheck%>%
+  filter(year=="2022")
+
+moncheck<-nurserydatecheck%>%
+  group_by(`Monitoring Session`,`Propagule ID`)%>%
+  summarise(n=n())%>%
+  filter(n>1)
+```
+
+```{r}
+nurseryclean<-nursery%>%
+  select(`Monitoring Session`,`Propagule ID`,`Dead/Alive/Dying`,`Epicotyl length (cm)`,Treatment)%>%
+  distinct()
+
+moncheck<-nurseryclean%>%
+  group_by(`Monitoring Session`,`Propagule ID`)%>%
+  summarise(n=n())%>%
+  filter(n>1)
+
+
+
+check<-nursery%>%
+  filter(`Monitoring Session`==20, `Propagule ID`==660)
+
+```
+
+
+
+Is there a unique tag ID for each tree, or is there duplicate numbers in different treatments?
+```{r}
+
+nursery<-nursery%>%
+    mutate(NewID = paste(Treatment, `Propagule ID`, sep = "_"))
+
+
+check<-nursery%>%
+  group_by(`Propagule ID`, Treatment)%>%
+  summarise(n=n())
+```
+
+we had some students start cleaning the data, checking how that looks 
+```{r}
+library(readr)
+library(tidyverse)
+
+Jan28CleaningCheck <- read_csv("12826CleaningCheck.csv")
+
+#looking at how many monitoring sessions are clean
+unique(Jan28CleaningCheck$`Monitoring Session`)
+
+#we have weirdness here so going to filter to look at the weirdness
+check<-Jan28CleaningCheck%>%
+  filter(`Monitoring Session`=="1/31/2022" | `Monitoring Session`=="2/2/2022"
+         |`Monitoring Session`=="2/4/2022"|`Monitoring Session`==NA)
+
+#number of trees per monitoring session
+monsesh<-Jan28CleaningCheck%>%
+  group_by(`Monitoring Session`)%>%
+  
+
+```
+
