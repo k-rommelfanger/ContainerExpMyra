@@ -11,7 +11,7 @@ editor_options:
 library(readr)
 library(tidyverse)
 
-nursery<- read_csv("32626CleaingCheck.csv")
+nursery<- read_csv("Container Experiment Myra/32626CleaingCheck.csv")
 
 #checking values to see that there is only expected levels
 unique(nursery$Treatment)
@@ -40,7 +40,7 @@ unique(moncheck$`Propagule ID`)
 
 #there were still some trees monitored  twice in the same monitoring sesh, edited in csv and redownloaded, will recheck 
 
-nursery<- read_csv("32626checkcleaned.csv")
+nursery<- read_csv("Container Experiment Myra/32626checkcleaned.csv")
 
 #look at number of plants monitored in each montoring session 
 moncheck<-nursery%>%
@@ -1154,5 +1154,55 @@ SurvivalPlot<-NurseryComplete1%>%
 SurvivalPlot
 
 #im still seeing more than 60 trees in a treatment, problem, its becasue at first I was still including trees that had NAs for propagule ID, once filtered those out looked good! Also filtered out monitoring session 32
+```
+
+Looking at height at a couple time points mean and standard deviation across treatments so i can estimate effect size for my power analysis
+
+
+```{r}
+effectsizethings<-NurseryComplete%>%
+  group_by(Treatment, `Monitoring Session`)%>%
+  filter(!is.na(`Epicotyl length (cm)`))%>%
+  summarise(AVG=mean(`Epicotyl length (cm)`),SD=sd(`Epicotyl length (cm)`))
+
+
+
+NurseryTest<-NurseryComplete%>%
+  filter(!is.na(`Epicotyl length (cm)`))
+
+
+#I'm picking one date for each monitoring session, because sessions run across multiple days, going with the earliest date that trees were monitored
+session_dates <- NurseryTest %>%
+  group_by(`Monitoring Session`) %>%
+  summarise(
+    first_date = min(`Date Processed`, na.rm = TRUE)
+  ) %>%
+  ungroup()
+
+NurseryTest$`Monitoring Session`
+session_dates$`Monitoring Session`
+
+#join on mon sesh date
+NurseryTest<-NurseryTest%>%
+  left_join(session_dates, by="Monitoring Session")
+
+
+#now mutate subtracting starting date
+NurseryTest<-NurseryTest%>%
+  mutate(Age=first_date-as.Date("2021-09-24"))
+
+NurseryTest<-NurseryTest%>%
+  filter(!is.na(`Propagule ID`))%>%
+  filter(!is.na(Age))%>%
+  filter(!is.na(`Epicotyl length (cm)`))
+
+NurseryTest$Age_years <- NurseryTest$Age / 365.25
+
+library(lme4)
+model<-lmer(`Epicotyl length (cm)`~Treatment_fixed*Age_years+(Age_years|`Propagule ID`), data=NurseryTest)
+
+
+model
+
 ```
 
