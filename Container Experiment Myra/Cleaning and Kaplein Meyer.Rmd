@@ -1198,11 +1198,17 @@ NurseryTest<-NurseryTest%>%
 
 NurseryTest$Age_years <- NurseryTest$Age / 365.25
 
+#trying to determine effect size of different treatments to get an idea of treatment effect for power analyis 
 library(lme4)
 model<-lmer(`Epicotyl length (cm)`~Treatment_fixed*Age_years+(Age_years|`Propagule ID`), data=NurseryTest)
 
 
 model
+
+library(effectsize)
+
+eta <- eta_squared(model, partial = TRUE)
+eta
 
 ```
 
