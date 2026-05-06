@@ -105,7 +105,7 @@ tcheck<-nursery_treatmentchange%>%
 
 
 #I have 10 time points with 60 trees monitored in each treatment, a lot of the other monitoring points are missing trees in treatments. 
-write.table(tcheck, "table.txt", )
+
 ```
 
 looking at living dead over time
