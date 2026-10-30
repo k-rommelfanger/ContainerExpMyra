@@ -1,0 +1,494 @@
+---
+title: "Outplant Cleaning and KM"
+output: html_document
+date: "2026-09-27"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+library(readr)
+library(lubridate)
+#library(survminer)#will need to do this once I setup new computer
+library(tidyverse)
+
+Outplants <- read_csv("container_outplant_monitoring_full - 93026.csv")
+
+#42 trees were outplanted
+length(unique(Outplants$`Original Prop ID`))
+
+#have an extra prop ID needs to be cleaned
+check<-Outplants%>%
+  group_by(`Original Prop ID`)%>%
+  summarise(length(unique(`Date of Processing`)))
+#problem child is 625,
+
+check<-Outplants%>%
+  filter(`Original Prop ID`=="625")
+#7/15/22, needs to be 623
+check<-Outplants%>%
+  filter(`Date of Processing`=="07/15/2022")
+
+
+#replace 625 with 623
+Outplants<-Outplants%>%
+   mutate(`Original Prop ID` = recode(`Original Prop ID`,
+                                     "623" = "625",
+                                     .default = `Original Prop ID`))
+
+
+#only three treatments
+unique(Outplants$`Container Type`)
+
+Outplants$`Date of Processing`<-mdy(Outplants$`Date of Processing`)
+
+length(unique(Outplants$`Date of Processing`))
+#69 monitoring dates
+number<-Outplants%>%
+  group_by(`Date of Processing`, `Original Prop ID` )%>%
+  summarise(N=n())%>%
+  filter(N>1)
+#all trees only monitored once on each day
+number<-Outplants%>%
+  group_by(`Date of Processing`, `Container Type`)%>%
+  summarise(N=length(`Original Prop ID`))%>%
+  pivot_wider(names_from = `Container Type`, values_from = N)
+#we have one monitoring sesh that has three dates in it, (4/29, 5/21, 5/22) all the rest look gorge going to change the date for this sesh to the midpoint of all these dates (5/10/26)
+
+Outplants<-Outplants%>%
+ mutate(
+    `Date of Processing` = replace(
+      `Date of Processing`,
+      `Date of Processing` %in% as.Date(c("2025-04-29", "2025-05-21", "2025-05-22")),
+      as.Date("2025-05-10")
+    )
+  )
+#fixed that
+
+Outplants$`Dead/Alive/Dying`<-as.factor(Outplants$`Dead/Alive/Dying`)
+
+#survival over time, need to fix the zombies
+Survival<-Outplants%>%
+  filter(`Dead/Alive/Dying`=="A"|`Dead/Alive/Dying`=="DY")%>%
+  group_by(`Date of Processing`, `Container Type`)%>%
+  summarise(numAlive=length(`Dead/Alive/Dying`))%>%
+  ggplot(aes(x=`Date of Processing`, y=numAlive, color=`Container Type`))+
+  geom_point()+
+  geom_line()
+
+Survival
+
+
+
+
+unique(Outplants$`Dead/Alive/Dying`)
+#A D DY GONE
+
+Outplants <- Outplants %>%
+  mutate(`Dead/Alive/Dying` = recode(`Dead/Alive/Dying`, "DY" = "A"))
+
+Outplants <- Outplants %>%
+  mutate(`Dead/Alive/Dying` = recode(`Dead/Alive/Dying`, "GONE" = "D"))
+
+
+#finding zombies
+Check<-Outplants%>%
+  group_by(`Original Prop ID`)%>%
+  mutate(ZombiePlants=lag(`Dead/Alive/Dying`))%>%
+  ungroup()%>%
+  filter(`Dead/Alive/Dying`=="A")%>%
+  filter(ZombiePlants=="D"|ZombiePlants=="DY"|ZombiePlants=="GONE")
+
+unique(Check$`Original Prop ID`)
+#[1] 671 556 583 685 589 641 673 666 623 689 684 
+#675 611 576 709 554 620 608 664 730 570 601 593 619 652 638
+
+
+# [1] 606 641 709 675 666 623 689 611 576
+#[16] 554 620 608 664 730 570 601 593 619 652 638 (no 589)
+
+#5/25/26 is a problem date, in like all times, going to remove it
+Outplants<-Outplants%>%filter(`Date of Processing`!="2023-05-25")
+
+Outplants$`Dead/Alive/Dying`<-as.character(Outplants$`Dead/Alive/Dying`)
+
+Check<-Outplants%>%
+  filter(`Original Prop ID`=="671")
+
+Outplants<-Outplants%>%
+  mutate(`Dead/Alive/Dying`=ifelse(
+    `Original Prop ID`==671 & `Date of Processing`>="2022-06-09",
+         "D",
+         `Dead/Alive/Dying`))%>%
+  mutate(`Dead/Alive/Dying`=ifelse(`Original Prop ID`==671 & `Date of Processing`<"2022-06-09",
+                                   "A",
+                                   `Dead/Alive/Dying`))
+
+
+
+Check<-Outplants%>%
+  filter(`Original Prop ID`=="556")
+#randomly alive 5/25/23 otherwise, dying but resprouts, mark as alive until consistently recorded dead, make resprout to remove for growth over time analysis
+Outplants<-Outplants%>%
+  mutate(`Dead/Alive/Dying`=ifelse(
+    `Original Prop ID`==556 & `Date of Processing`>="2022-09-23",
+         "D",
+         `Dead/Alive/Dying`))%>%
+  mutate(`Dead/Alive/Dying`=ifelse(`Original Prop ID`==556 & `Date of Processing`<"2022-09-23",
+                                   "A",
+                                   `Dead/Alive/Dying`))%>%
+  mutate(Resprout=ifelse(
+    `Original Prop ID`==556,
+    "Yes",
+    NA
+  ))
+
+
+Check<-Outplants%>%
+  filter(`Original Prop ID`=="583")
+#dying but resprouts, mark as alive until consistently recorded dead, make resprout to remove for growth over time analysis
+Outplants<-Outplants%>%
+  mutate(`Dead/Alive/Dying`=ifelse(
+    `Original Prop ID`==583 & `Date of Processing`>="2022-10-28",
+         "D",
+         `Dead/Alive/Dying`))%>%
+  mutate(`Dead/Alive/Dying`=ifelse(`Original Prop ID`==583 & `Date of Processing`<"2022-10-28",
+                                   "A",
+                                   `Dead/Alive/Dying`))%>%
+  mutate(Resprout=ifelse(
+    `Original Prop ID`==583,
+    "Yes",
+    NA
+  ))
+
+Check<-Outplants%>%
+  filter(`Original Prop ID`=="685")
+#dead 9/30/22, resprout
+Outplants<-Outplants%>%
+  mutate(`Dead/Alive/Dying`=ifelse(
+    `Original Prop ID`==685 & `Date of Processing`>="2022-9-30",
+         "D",
+         `Dead/Alive/Dying`))%>%
+  mutate(`Dead/Alive/Dying`=ifelse(`Original Prop ID`==685 & `Date of Processing`<"2022-9-30",
+                                   "A",
+                                   `Dead/Alive/Dying`))%>%
+  mutate(Resprout=ifelse(
+    `Original Prop ID`==685,
+    "Yes",
+    NA
+  ))
+
+Check<-Outplants%>%
+  filter(`Original Prop ID`=="589")
+#no more leaves at 6/17/22
+
+Outplants<-Outplants%>%
+  mutate(`Dead/Alive/Dying`=ifelse(
+    `Original Prop ID`==589 & `Date of Processing`>="2022-6-17",
+         "D",
+         `Dead/Alive/Dying`))%>%
+  mutate(`Dead/Alive/Dying`=ifelse(`Original Prop ID`==589 & `Date of Processing`<"2022-6-17",
+                                   "A",
+                                   `Dead/Alive/Dying`))
+
+Check<-Outplants%>%
+  filter(`Original Prop ID`=="641")
+#dead at 8/19/22
+Outplants<-Outplants%>%
+  mutate(`Dead/Alive/Dying`=ifelse(
+    `Original Prop ID`==641 & `Date of Processing`>="2022-8-19",
+         "D",
+         `Dead/Alive/Dying`))%>%
+  mutate(`Dead/Alive/Dying`=ifelse(`Original Prop ID`==641 & `Date of Processing`<"2022-8-19",
+                                   "A",
+                                   `Dead/Alive/Dying`))
+
+Check<-Outplants%>%
+  filter(`Original Prop ID`=="673")
+#dead at 11/18/22
+Outplants<-Outplants%>%
+  mutate(`Dead/Alive/Dying`=ifelse(`Original Prop ID`==673 & `Date of Processing`<"2022-11-18",
+                                   "A",
+                                   `Dead/Alive/Dying`))
+
+
+Check<-Outplants%>%
+  filter(`Original Prop ID`=="666")
+#dead 12/11/23
+Outplants<-Outplants%>%
+  mutate(`Dead/Alive/Dying`=ifelse(`Original Prop ID`==666 & `Date of Processing`<"2023-12-11",
+                                   "A",
+                                   `Dead/Alive/Dying`))
+
+Check<-Outplants%>%
+  filter(`Original Prop ID`=="623")
+#10/21/23 randomly alive, marked gone on 7/22/22
+
+Outplants<-Outplants%>%
+  mutate(`Dead/Alive/Dying`=ifelse(
+    `Original Prop ID`==623 & `Date of Processing`>="2022-7-22",
+         "D",
+         `Dead/Alive/Dying`))%>%
+  mutate(`Dead/Alive/Dying`=ifelse(`Original Prop ID`==623 & `Date of Processing`<"2022-7-22",
+                                   "A",
+                                   `Dead/Alive/Dying`))
+
+
+Check<-Outplants%>%
+  filter(`Original Prop ID`=="689")
+#5/25/23 is a problem date, dead on 1/13/23
+
+Outplants<-Outplants%>%
+  mutate(`Dead/Alive/Dying`=ifelse(
+    `Original Prop ID`==689 & `Date of Processing`>="2023-1-13",
+         "D",
+         `Dead/Alive/Dying`))%>%
+  mutate(`Dead/Alive/Dying`=ifelse(`Original Prop ID`==689 & `Date of Processing`<"2023-1-13",
+                                   "A",
+                                   `Dead/Alive/Dying`))
+
+Check<-Outplants%>%
+  filter(`Original Prop ID`=="684")
+#resprout, 5/25 is a bad day need to filter out, dead at 10/14/22
+Outplants<-Outplants%>%
+  mutate(`Dead/Alive/Dying`=ifelse(
+    `Original Prop ID`==684 & `Date of Processing`>="2022-10-14",
+         "D",
+         `Dead/Alive/Dying`))%>%
+  mutate(`Dead/Alive/Dying`=ifelse(`Original Prop ID`==684 & `Date of Processing`<"2022-10-14",
+                                   "A",
+                                   `Dead/Alive/Dying`))%>%
+  mutate(Resprout=ifelse(
+    `Original Prop ID`==684,
+    "Yes",
+    NA
+  ))
+
+Check<-Outplants%>%
+  filter(`Original Prop ID`=="675")
+#D 9/2/22
+Outplants<-Outplants%>%
+  mutate(`Dead/Alive/Dying`=ifelse(
+    `Original Prop ID`==675 & `Date of Processing`>="2022-9-2",
+         "D",
+         `Dead/Alive/Dying`))%>%
+  mutate(`Dead/Alive/Dying`=ifelse(`Original Prop ID`==675 & `Date of Processing`<"2022-9-2",
+                                   "A",
+                                   `Dead/Alive/Dying`))
+
+
+
+Check<-Outplants%>%
+  filter(`Original Prop ID`=="611")
+#pull 5/25 overall, i think that data got made up, 9/23/22 
+Outplants<-Outplants%>%
+  mutate(`Dead/Alive/Dying`=ifelse(
+    `Original Prop ID`==611 & `Date of Processing`>="2022-9-23",
+         "D",
+         `Dead/Alive/Dying`))%>%
+  mutate(`Dead/Alive/Dying`=ifelse(`Original Prop ID`==611 & `Date of Processing`<"2022-9-23",
+                                   "A",
+                                   `Dead/Alive/Dying`))
+
+Check<-Outplants%>%
+  filter(`Original Prop ID`=="576")
+#2/10/23 dead
+Outplants<-Outplants%>%
+  mutate(`Dead/Alive/Dying`=ifelse(
+    `Original Prop ID`==576 & `Date of Processing`>="2023-2-10",
+         "D",
+         `Dead/Alive/Dying`))%>%
+  mutate(`Dead/Alive/Dying`=ifelse(`Original Prop ID`==576 & `Date of Processing`<"2023-2-10",
+                                   "A",
+                                   `Dead/Alive/Dying`))
+
+Check<-Outplants%>%
+  filter(`Original Prop ID`=="709")
+#dead 9/9/22
+Outplants<-Outplants%>%
+  mutate(`Dead/Alive/Dying`=ifelse(
+    `Original Prop ID`==709 & `Date of Processing`>="2022-9-9",
+         "D",
+         `Dead/Alive/Dying`))%>%
+  mutate(`Dead/Alive/Dying`=ifelse(`Original Prop ID`==709 & `Date of Processing`<"2022-9-9",
+                                   "A",
+                                   `Dead/Alive/Dying`))
+
+
+
+Check<-Outplants%>%
+  filter(`Original Prop ID`=="554")
+#11/11/22 dead
+
+Outplants<-Outplants%>%
+  mutate(`Dead/Alive/Dying`=ifelse(
+    `Original Prop ID`==554 & `Date of Processing`>="2022-11-11",
+         "D",
+         `Dead/Alive/Dying`))%>%
+  mutate(`Dead/Alive/Dying`=ifelse(`Original Prop ID`==554 & `Date of Processing`<"2022-11-11",
+                                   "A",
+                                   `Dead/Alive/Dying`))
+
+Check<-Outplants%>%
+  filter(`Original Prop ID`=="620")
+# looks good after removing 5/25
+
+Check<-Outplants%>%
+  filter(`Original Prop ID`=="608")
+#good after removing 5/25
+
+Check<-Outplants%>%
+  filter(`Original Prop ID`=="664")
+#good after removing 5/25
+
+Check<-Outplants%>%
+  filter(`Original Prop ID`=="730")
+#good after removing 5/25
+
+Check<-Outplants%>%
+  filter(`Original Prop ID`=="570")
+#good after removing 5/25
+
+Check<-Outplants%>%
+  filter(`Original Prop ID`=="601")
+#good after removing 5/25
+
+Check<-Outplants%>%
+  filter(`Original Prop ID`=="593")
+#good after removing 5/25
+
+Check<-Outplants%>%
+  filter(`Original Prop ID`=="619")
+#good after removing 5/25
+
+Check<-Outplants%>%
+  filter(`Original Prop ID`=="652")
+#good after removing 5/25
+
+Check<-Outplants%>%
+  filter(`Original Prop ID`=="638")
+#good after removing 5/25
+
+#double check for zombies again 
+Check<-Outplants%>%
+  group_by(`Original Prop ID`)%>%
+  mutate(ZombiePlants=lag(`Dead/Alive/Dying`))%>%
+  ungroup()%>%
+  filter(`Dead/Alive/Dying`=="A")%>%
+  filter(ZombiePlants=="D"|ZombiePlants=="DY"|ZombiePlants=="GONE")
+
+Check<-Outplants%>%
+  filter(`Original Prop ID`=="606")
+#fix the dying 
+Outplants<-Outplants%>%
+  mutate(`Dead/Alive/Dying`=ifelse(`Original Prop ID`==606 & `Date of Processing`<"2022-6-2",
+                                   "A",
+                                   `Dead/Alive/Dying`))
+
+Survival<-Outplants%>%
+  filter(`Dead/Alive/Dying`=="A"|`Dead/Alive/Dying`=="DY")%>%
+  #filter(`Container Type`=="TP")%>%
+  group_by(`Date of Processing`, `Container Type`)%>%
+  summarise(numAlive=length(`Dead/Alive/Dying`))%>%
+  ggplot(aes(x=`Date of Processing`, y=numAlive, color=`Container Type`))+
+  geom_point()+
+  geom_line()
+
+Survival
+
+```
+
+now time to set up KM
+```{r}
+
+#here making status column, 0,1 and noting first dead sesson 
+outplantKM<-Outplants%>%
+  arrange(`Original Prop ID`, `Date of Processing`) %>%
+  group_by(`Original Prop ID`) %>%
+  summarise(
+    first_dead_session = if_else(
+      any(`Dead/Alive/Dying` == "D"), #if there are any D
+      min(`Date of Processing`[`Dead/Alive/Dying` == "D"]), #then select the lowest dead 
+      as.Date("2026-09-15")#otherwise fill fist_dead_session column with last mon date (survived all sessions)
+    ), status = ifelse(  #make status
+      any(`Dead/Alive/Dying` == "D"), #then if there are any D in D/A
+      1,  #mark D as 1
+      0) , #if no D, A = 0
+    Treatment = first(`Container Type`))%>%  #treatment from fixed treatment column
+  ungroup()
+  
+  #calculate days to event
+  
+ outplantKM<-outplantKM%>%
+  mutate(time=first_dead_session-as.Date("2021-09-16"))
+ 
+ curve <- survfit(Surv(time, status) ~ Treatment, data = outplantKM)
+
+#rough plot
+plot(curve)
+
+#pretty plot!
+plotobj<-ggsurvplot(curve, data=status,
+  palette = c("#7B19C1","#013a63","#009E73"), conf.int = TRUE, 
+  risk.table = TRUE,
+  risk.table.height=0.25)
+
+plotobj
+
+#testing for statistical difference between groups 
+logRank<-survdiff(Surv(time = time, event = status) ~ Treatment, data = outplantKM)
+
+logRank
+
+#Call:
+#survdiff(formula = Surv(time = time, event = status) ~ Treatment, 
+#    data = outplantKM)
+
+#              N Observed Expected (O-E)^2/E (O-E)^2/V
+#Treatment=BB 14        8     5.66     0.972     1.412
+#Treatment=CC 14        5     6.36     0.289     0.444
+#Treatment=TP 15        6     6.99     0.140     0.225
+
+# Chisq= 1.4  on 2 degrees of freedom, p= 0.5
+
+```
+
+
+
+```{r}
+#this is the intake data for the propagules
+Setup <- read_csv("Container-Experiment-Analysis/Kaitlin Container Experiment Analysis/data/ContainerSetupData.csv")#change this file path to where you put the data
+
+#rename total length so can distinguish between intake and total length for monitoring 
+Setup<-Setup%>%
+  rename(IntakeTotalLength=`Total length (cm)`)
+#rename epi lenght to intake epi length
+Setup<-Setup%>%
+  rename(IntakeEpiLenght=`Epicotyl length (cm)`)
+
+#determine hypocotyl length so I can get total lengths for all the plants,select for prop info to join df together
+Setup<-Setup%>%
+  mutate(HypoLength =IntakeTotalLength-IntakeEpiLenght)%>%
+  rename(`Original Prop ID`=`Tag #`)%>%
+  select(`Original Prop ID`,`Mass (g)`,IntakeTotalLength,IntakeEpiLenght, HypoLength,`Diameter (mm)`, `Collection Date`)
+
+#join the intake data to the Monitoring data so I can determine total lengths for all the plants that just have epicotyl lengths
+Outplants$OriginalPropID<-as.numeric(Outplants$OriginalPropID)
+Setup$OriginalPropID<-as.numeric(Setup$OriginalPropID)
+
+LengthJoin<-left_join(Outplants,Setup, by="Original Prop ID")
+
+#add epi and hypo to get total length, when total length was not measured (if total lenght is na, add epi and hypo lenght, if not report total length)
+
+LengthJoin<-LengthJoin%>%
+mutate(
+    TreeLength = if_else(is.na(`Total Length (cm)`), (`Epicotyl Length (cm)`+ HypoLength), `Total Length (cm)`)
+  )
+
+
+LengthJoin$OriginalPropID<-as.factor(LengthJoin$OriginalPropID)
+
+write_csv()
+write_csv(file="ZombieFreeOutplant.csv",LengthJoin )
+```
+

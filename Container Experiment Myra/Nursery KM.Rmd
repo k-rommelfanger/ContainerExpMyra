@@ -1,0 +1,340 @@
+---
+title: "Nursery KM"
+output: html_document
+date: "2026-09-26"
+editor_options: 
+  chunk_output_type: console
+---
+
+This script looks at the nursery data, makes Kaplan-Meier survivorship curve and runs statistics and post hoc tests
+
+csvs needed:nurserydata.csv
+
+```{r}
+library(tidyverse)
+library(readr)
+library(lubridate)
+library(survival)
+library(ggsurvfit)
+library(survminer)
+
+nurserydata <- read_csv("nurserydata.csv")
+
+```
+
+Ok Kaplan-Meier Time!
+
+The theory behind it all
+https://biostatsquid.com/survival-time-analysis-easily-explained/
+https://biostatsquid.com/kaplan-meier-curve/
+https://biostatsquid.com/easy-log-rank-test/
+https://biostatsquid.com/easy-cox-regression-for-survival-analysis/
+
+the code (how to do it)
+https://biostatsquid.com/easy-survival-analysis-r-tutorial/ 
+
+another tutorial, disclaimer I like the first one better https://www.sthda.com/english/wiki/survival-analysis-basics
+
+
+```{r}
+
+#in order to run Kaplan Meier we need to setup the data,
+
+#we need censoring status as 0 still alive and 1 died
+
+#and we need time to event, number of days until D, or last followup, in our case session 32 in order to calculate time until death
+
+#want to look at dates for each monitoring session,make date processed a date
+nurserydata$`Date Processed`<-mdy(nurserydata$`Date Processed`)
+
+#now I'm picking one date for each monitoring session, because sessions run across multiple days, going with the earliest date that trees were monitored
+session_dates <- nurserydata %>%
+  group_by(`Monitoring Session`) %>%
+  summarise(
+    first_date = min(`Date Processed`, na.rm = TRUE)
+  ) %>%
+  ungroup()
+```
+
+Here is fixing resprouts will move this to before csv is made once this problem is fixed
+
+```{r}
+#I'm creating a dataframe here for the test
+resproutcheck<-nurserydata%>%
+  filter(Resprout=="Yes")
+
+unique(resproutcheck$`Propagule ID`)
+#9 trees resprouted, could remove these or make it so resprouted ones are A, at the end, but then I'm not sure cuz how do we know that the ones we thought were dead didnt eventually resprout? 667 652 665 697 731 564 584 566 651
+
+check<-nurserydata%>%
+  filter(`Propagule ID`== "665")
+#change to alive whole time
+nurserydata<-nurserydata%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="665",
+         "A",
+         `Dead/Alive`))
+
+check<-nurserydata%>%
+  filter(`Propagule ID`== "697")
+#change to alive whole time
+nurserydata<-nurserydata%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="697",
+         "A",
+         `Dead/Alive`))
+
+
+check<-nurserydata%>%
+  filter(`Propagule ID`== "731")
+#alive whole time
+nurserydata<-nurserydata%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="731",
+         "A",
+         `Dead/Alive`))
+
+
+check<-nurserydata%>%
+  filter(`Propagule ID`== "584")
+#alive whole time
+nurserydata<-nurserydata%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="584",
+         "A",
+         `Dead/Alive`))
+
+
+check<-nurserydata%>%
+  filter(`Propagule ID`== "651")
+#alive whole time
+nurserydata<-nurserydata%>%
+  mutate(`Dead/Alive`=ifelse(
+    `Propagule ID`=="651",
+         "A",
+         `Dead/Alive`))
+
+
+
+#dubious friends
+check<-nurserydata%>%
+  filter(`Propagule ID`== "667")
+#dead at first dead, stays dead no change needed 
+
+check<-nurserydata%>%
+  filter(`Propagule ID`== "564")
+#dead at first dead, no change needed
+
+check<-nurserydata%>%
+  filter(`Propagule ID`== "566")
+#dead at first dead, no change needed
+
+check<-nurserydata%>%
+  filter(`Propagule ID`== "652")
+#all good no changes needed 
+
+#resprouts to change to A all along (665, 697, 731, 584,651)
+
+#resprouts that look good
+#652 (marked alive whole time), 
+
+#resprouts that look weird
+#667 (dead at first dead), 564 (dead at first dead),566 (says it resprouted at wk 27)
+
+```
+
+
+then setting up data for KM
+
+```{r}
+
+#here making status column, 0,1 and noting first dead sesson 
+status<-nurserydata%>%
+  arrange(`Propagule ID`, `Monitoring Session`) %>%
+  group_by(`Propagule ID`) %>%
+  summarise(
+    first_dead_session = ifelse(
+      any(`Dead/Alive` == "D"), #if there are any D
+      min(`Monitoring Session`[`Dead/Alive` == "D"]), #then select the lowest dead 
+      32  #otherwise fill fist_dead_session column with 32 (survived all sessions)
+    ), status = ifelse(  #make status
+      any(`Dead/Alive` == "D"), #then if there are any D in D/A
+      1,  #mark D as 1
+      0) , #if no D, A = 0
+    Treatment = first(Treatment_fixed))%>%  #treatment from fixed treatment column
+  ungroup()%>%
+  filter(!is.na(`Propagule ID`))#removing NAs in propagule ID
+  
+#now renaming so i can join the dates with the status frame
+status<-status%>%
+  rename(`Monitoring Session`=first_dead_session)
+
+#merging 
+status<-merge(session_dates, status, by="Monitoring Session")
+
+#get time until death/end. using september 16th as the planting day
+status<-status%>%
+  mutate(time=first_date-as.Date("2021-09-16"))
+
+#make Kaplan-Meier Curve from the survival object
+  #survival object is using our data 
+curve <- survfit(Surv(time, status) ~ Treatment, data = status)
+
+#rough plot
+plot(curve)
+
+#pretty plot!
+plotobj<-ggsurvplot(curve, data=status,
+  palette = c("#7B19C1","#FD6A02","#009E73"), conf.int = TRUE, 
+  risk.table = TRUE,
+  risk.table.height=0.25)
+
+plotobj
+
+
+#testing for statistical difference between groups 
+logRank<-survdiff(Surv(time = time, event = status) ~ Treatment, data = status)
+
+logRank
+#fixed numbers for the resprouts
+
+
+#Call:
+#survdiff(formula = Surv(time = time, event = status) ~ Treatment, 
+#    data = status)
+
+#              N Observed Expected (O-E)^2/E (O-E)^2/V
+#Treatment=BB 60       25     21.7      0.51     0.855
+#Treatment=CC 60       12     22.8      5.10     8.793
+#Treatment=TP 60       27     19.5      2.85     4.545
+
+# Chisq= 9.4  on 2 degrees of freedom, p= 0.009 
+
+
+
+
+
+#including the resprouts unaltered from initial, these numbers will change, once the resprouts are figured out. 
+#Call:
+#survdiff(formula = Surv(time = time, event = status) ~ Treatment, 
+#    data = status)
+
+#              N Observed Expected (O-E)^2/E (O-E)^2/V
+#Treatment=BB 60       25     23.4     0.103     0.174
+#Treatment=CC 60       13     24.7     5.570     9.715
+#Treatment=TP 60       31     20.8     4.982     7.983
+
+# Chisq= 11.9  on 2 degrees of freedom, p= 0.003 
+
+
+#these are the og numbers from when we were removing resprouts
+
+#Call:
+#survdiff(formula = Surv(time = time, event = status) ~ Treatment, 
+#    data = status)
+
+#              N Observed Expected (O-E)^2/E (O-E)^2/V
+#Treatment=BB 59       24     21.6     0.278     0.479
+#Treatment=CC 58       11     22.1     5.606     9.799
+#Treatment=TP 54       26     17.3     4.364     6.784
+
+# Chisq= 11.4  on 2 degrees of freedom, p= 0.003 
+
+#difference is detected from significant p value 
+
+```
+
+post hoc test which groups are different from each other?
+```{r}
+
+post_hoc <- pairwise_survdiff(Surv(time = time, event = status) ~ Treatment, 
+                              data = status, 
+                              p.adjust.method = "holm") # Options: "holm", "bonferroni", "BH", etc.
+
+
+print(post_hoc)
+
+
+#	Pairwise comparisons using Log-Rank test 
+
+#data:  status and Treatment 
+
+#   BB     CC    
+#CC 0.0314 -     
+#TP 0.4867 0.0092
+
+#P value adjustment method: holm
+
+
+
+
+#Pairwise comparisons using Log-Rank test 
+
+#data:  status and Treatment 
+
+#   BB     CC    
+#CC 0.0525 -     
+#TP 0.1771 0.0019
+
+#P value adjustment method: holm 
+
+
+```
+
+```{r}
+
+living<-nurserydata%>%
+  filter(`Monitoring Session`==31 &`Dead/Alive`=="A")
+
+plot<-nurserydata%>%
+  filter(`Monitoring Session` %in% c(1,6,16,20,24,26,27,28,29,30,31))%>%
+  filter(is.na(Resprout))#%>%
+  filter(`Propagule ID` %in% living)
+
+
+
+
+plot$`Propagule ID`<-as.factor(plot$`Propagule ID`)
+plot$`Total leaf node count`
+
+  plot1<-plot%>%
+    ggplot(aes(x=`Monitoring Session`, y=`Total leaf node count`, color=`Propagule ID`))+
+  geom_point()+
+  geom_line()+
+  facet_wrap(~Treatment_fixed)
+
+plot1
+  
+
+```
+
+```{r}
+library(lme4)
+library(lmerTest)
+
+nurserylenght<-lmer(`Epicotyl length (cm)`~Treatment_fixed +`Monitoring Session`+ (1|`Propagule ID`), data=nurserydata)
+
+nurserylenght
+
+summary(nurserylenght)4
+
+
+nurserylenght2 <- lmer(
+  `Epicotyl length (cm)` ~ Treatment_fixed +
+    `Monitoring Session` +
+    (1 + `Monitoring Session` | `Propagule ID`),
+  data = nurserydata
+)
+
+summary(nurserylenght2)
+
+
+nurserylenght3 <- lmer(`Epicotyl length (cm)` ~ Treatment_fixed * `Monitoring Session` +
+  (1 + `Monitoring Session` | `Propagule ID`),
+  data = nurserydata
+)
+
+
+summary(nurserylenght3)
+```
+

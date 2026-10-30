@@ -6,6 +6,7 @@ output: html_document
 editor_options: 
   chunk_output_type: console
 ---
+This cleans the nursery data, makes sure trees recorded with the same treatment over time. We look at survivorship over time, determine when trees that are alive/dead/alive are truly dead and establishes a resprout column to filter the data. Write clean nurserydata.csv
 
 ```{r}
 library(readr)
@@ -919,7 +920,7 @@ check<-nursery_treatmentchange%>%
 ```
 
 
-myra and I checking our resprots
+myra and I checking our resprouts
 ```{r}
 nursery<-nursery_treatmentchange%>%
   group_by(Treatment_fixed, `Dead/Alive`)%>%
@@ -927,7 +928,7 @@ nursery<-nursery_treatmentchange%>%
 
 
 nurserycheck<-nursery_treatmentchange%>%
-  filter(Resprout=="Yes")#%>%
+  filter(Resprout=="Yes")%>%
   filter(`Monitoring Session`==16)%>%
   group_by(Treatment_fixed)%>%
   summarise(N=n())
@@ -938,7 +939,7 @@ nurserycheck<-nursery_treatmentchange%>%
   filter(Resprout=="Yes")%>%
   filter(Treatment_fixed=="CC")
 
-nurserycheck<-
+
 
 unique(nurserycheck$`Propagule ID`)
 #667 652 665 697 731 564 584 566 651
@@ -946,7 +947,57 @@ unique(nurserycheck$`Propagule ID`)
 check<-nursery_treatmentchange%>%
   filter(`Propagule ID`=="697")
 
+
+write.csv(nursery_treatmentchange, file = "nurserydata.csv")
 ```
+
+What have we done with the re-sprouts in nursery treatment change??
+```{r}
+
+resproutcheck<-nursery_treatmentchange%>%
+  filter(Resprout=="Yes")
+
+unique(resproutcheck$`Propagule ID`)
+#667 652 665 697 731 564 584 566 651
+
+checky<-resproutcheck%>%
+  filter(`Propagule ID`=="667")
+#CC
+#so for 667 we stick with our guns
+#then do we pull this tree for heights
+checky<-resproutcheck%>%
+  filter(`Propagule ID`=="652")
+#TP
+#the epicotyl snapped on this tree, then resprouted. we changed it to alive we are happy with this
+#do we pull this tree for heights?
+checky<-resproutcheck%>%
+  filter(`Propagule ID`=="665")
+#TP
+
+checky<-resproutcheck%>%
+  filter(`Propagule ID`=="697")
+#CC
+checky<-resproutcheck%>%
+  filter(`Propagule ID`=="731")
+#TP
+checky<-resproutcheck%>%
+  filter(`Propagule ID`=="564")
+#BB
+checky<-resproutcheck%>%
+  filter(`Propagule ID`=="584")
+#TP
+checky<-resproutcheck%>%
+  filter(`Propagule ID`=="566")
+#TP
+checky<-resproutcheck%>%
+  filter(`Propagule ID`=="651")
+#TP
+
+#6 re-sprout are tree pot, 2CC, 1BB
+```
+
+Next step make a new DF with the resprout trees as alive until and if they die for realzies, and then rerun KM
+
 
 
 
@@ -1008,7 +1059,7 @@ unique(resproutcheck$`Propagule ID`)
 
 #here I am looking at the dataframe and if there are any D recorded for the trees, I am selecting for the earliest session where they were dead (makind first_dead_session), otherwise marking as session 32 
 status<-nursery_treatmentchange%>%
-  filter(is.na(Resprout))%>% #removing resprouted trees
+# filter(is.na(Resprout))%>% #removing resprouted trees
   arrange(`Propagule ID`, `Monitoring Session`) %>%
   group_by(`Propagule ID`) %>%
   summarise(
@@ -1138,7 +1189,7 @@ NurseryComplete1 <- NurseryComplete1 %>%
 ```
 
 
-
+#this we used for a meeting at one point, we dont need this kaplein meyer looks at this effectively 
 ```{r}
 
 SurvivalPlot<-NurseryComplete1%>%
@@ -1155,6 +1206,7 @@ SurvivalPlot
 
 #im still seeing more than 60 trees in a treatment, problem, its becasue at first I was still including trees that had NAs for propagule ID, once filtered those out looked good! Also filtered out monitoring session 32
 ```
+
 
 Looking at height at a couple time points mean and standard deviation across treatments so i can estimate effect size for my power analysis
 
